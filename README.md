@@ -1,30 +1,18 @@
 # Snyk Secrets Ignore Report
 
-Lists the **open Snyk Secrets issues** in an Organization and shows which ones are covered by an active ignore policy.
+Shows which **open** Snyk Secrets issues in an Org are covered by an active ignore policy, and can create an ignore for one.
 
-- **Table 1:** open Secrets *with* an active ignore policy (ignore type, reason, expiry, review status, policy ID)
-- **Table 2:** open Secrets *without* an active ignore policy (with a note if an ignore exists but is expired, rejected or pending)
+- **Table 1:** open Secrets *with* an active ignore (type, reason, expiry, review, policy ID)
+- **Table 2:** open Secrets *without* one (the Note column says if an ignore exists but is expired, rejected or pending)
 
-Each row shows severity, secret, repository, integration (`CLI` or `SCM (<origin>)`), project name and file location. Resolved issues are excluded.
-
-## How it works
-
-Three paginated REST API calls run in parallel:
-
-| Endpoint | Used for |
-| --- | --- |
-| `GET /orgs/{org_id}/policies` | `conditions_group.conditions[].value` is the finding UUID |
-| `GET /orgs/{org_id}/issues?type=secrets` | `attributes.key_asset` is matched to the finding UUID |
-| `GET /orgs/{org_id}/projects?expand=target` | project name, repository and origin |
-
-An ignore is **active** if its review is `approved` or `not-required` and it has not expired.
+Rows show severity, secret, repository, integration (`CLI` or `SCM (<origin>)`), project and file location. Resolved issues are excluded. An ignore is *active* if its review is `approved` or `not-required` and it has not expired.
 
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/) (installs Python 3.11+ and `requests` automatically)
-- A Snyk API token with access to the Org (a service account token is recommended)
+- A Snyk API token with access to the Org (`SNYK_TOKEN`)
 
-## Usage
+## Report
 
 ```bash
 export SNYK_TOKEN=<your-token>
@@ -33,16 +21,35 @@ uv run snyk_secrets_ignores.py --org-id <ORG_UUID>
 
 | Option | Description |
 | --- | --- |
-| `--org-id` | Organization ID (UUID). Required. |
-| `--region` | `US` (default), `US2`, `EU` or `AU`. Must match your token's region. |
+| `--org-id` | **Required.** Organization ID (UUID). |
+| `--region` | `US` (default), `US2`, `EU` or `AU`. Must match the token's region. |
 | `--version` | REST API version (default `2026-09-09`). |
-| `--width N` | Table width in columns (default: terminal width). |
-| `--csv` | Also write `secrets_ignores.csv` in the current folder (both tables, with a `group` column). |
-| `--json` | Also write `secrets_ignores.json` in the current folder. |
+| `--width N` | Table width (default: terminal width). |
+| `--csv`, `--json` | Also write `secrets_ignores.csv` / `secrets_ignores.json` in the current folder. |
+
+## Create an ignore
+
+```bash
+uv run snyk_secrets_ignores.py --org-id <ORG_UUID> --ignore <ID> --reason "Test fixture"
+```
+
+| Parameter | Required | Description |
+| --- | --- | --- |
+| `SNYK_TOKEN` | Yes | Environment variable; token must be able to create policies. |
+| `--org-id` | Yes | Organization ID (UUID). |
+| `--ignore ID` | Yes | The *Issue ID* from Table 2, or the `finding_id` from the CSV/JSON output. |
+| `--expires YYYY-MM-DD` | With `temporary-ignore` | Future date. |
+| `--ignore-type` | No | `wont-fix` (default), `temporary-ignore` or `not-vulnerable`. |
+| `--reason`, `--name` | No | Reason, and policy name (default `Ignore secret: <title>`). |
+| `--yes` | No | Skip the `[y/N]` prompt (needed when not in an interactive terminal). |
+
+The script checks the finding is a Secrets issue in the Org with no active ignore, shows what will be ignored, asks for confirmation, then creates the policy. If your Org requires approval the ignore is `pending` until approved. The create call is never retried.
+
+Long IDs can wrap in a narrow table: widen the terminal, use `--width`, or copy from the `--json` output.
 
 ## Troubleshooting
 
-- **HTTP 401:** the token is invalid or for a different region. Set `--region` to match.
+- **HTTP 401:** invalid token or wrong `--region`.
 - **HTTP 403/404:** the token lacks access to the Org, or the Org ID is wrong.
-- **`uv` certificate error:** try `uv run --system-certs ...`.
-- **Cells wrap heavily:** use a wider terminal or `--width`, or read the CSV/JSON output.
+- **`uv` certificate error:** use `uv run --system-certs ...`.
+- **"No Secrets issue ... matches":** the ID is not an issue ID or `key_asset` in that Org.
