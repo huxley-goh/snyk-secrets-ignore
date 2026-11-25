@@ -47,6 +47,31 @@ The script checks the finding is a Secrets issue in the Org with no active ignor
 
 Long IDs can wrap in a narrow table: widen the terminal, use `--width`, or copy from the `--json` output.
 
+## APIs used
+
+All calls are [Snyk REST API](https://docs.snyk.io/snyk-api) requests to `https://api.<region>.snyk.io/rest` (auth: `Authorization: token $SNYK_TOKEN`, results paged with `limit=100` and `links.next` until exhausted). The three reads run in parallel.
+
+| API | Endpoint | Used for |
+| --- | --- | --- |
+| Issues | `GET /orgs/{org_id}/issues?type=secrets` | Secrets issues: `id`, `status`, `title`, severity, file location, `key_asset`, and the project (`relationships.scan_item`). |
+| Policies | `GET /orgs/{org_id}/policies` | Existing policies: ignore type, reason, expiry, `review` status, and the finding UUID in `conditions_group.conditions[].value`. |
+| Projects | `GET /orgs/{org_id}/projects?expand=target` | Project name, repository (target) and `origin` (CLI vs SCM). |
+| Policies (create) | `POST /orgs/{org_id}/policies` | Only with `--ignore`: creates the ignore policy. |
+
+### How an issue is mapped to its ignore
+
+```
+Issue (id)  ──key_asset──▶  finding UUID  ◀──conditions[].value──  Ignore policy
+                                                  (field snyk/asset/finding/v1)
+Issue ──scan_item──▶ project id ──▶ Projects API ──▶ project name, repository, integration
+```
+
+1. **Issue → asset:** each Secrets issue has an `id` (the *Issue ID*) and an `attributes.key_asset`, which is the finding UUID that identifies the secret.
+2. **Asset → policy:** an ignore policy targets a finding through a condition with field `snyk/asset/finding/v1`, operator `includes`, and the finding UUID as its `value`. The script indexes every policy by those values and looks up each issue's `key_asset`.
+3. **Active check:** a matching policy counts as active only if `review` is `approved` or `not-required` and it has not expired. Otherwise the issue lands in Table 2 with a note.
+
+`--ignore <ID>` runs the same lookup in reverse: it resolves the Issue ID (or the finding UUID) to the issue's `key_asset`, then `POST`s a policy whose condition `value` is that UUID, so the next report maps the issue to it.
+
 ## Troubleshooting
 
 - **HTTP 401:** invalid token or wrong `--region`.
